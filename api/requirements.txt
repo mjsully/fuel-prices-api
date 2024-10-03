@@ -1,0 +1,6 @@
+fastapi
+httpx
+uvicorn[standard]
+requests
+sqlalchemy
+tqdm

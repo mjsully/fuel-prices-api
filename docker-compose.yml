@@ -1,0 +1,12 @@
+services:
+  fuel-prices-api:
+    image: fuel-prices-api
+    build: ./api/
+    user: 1000:1000
+    container_name: fuel-prices-api
+    ports:
+      - 8000:8000
+    volumes:
+      - ./api/data/:/usr/src/app/data
+    env_file: .env
+    command: "uvicorn server:app --host 0.0.0.0"
