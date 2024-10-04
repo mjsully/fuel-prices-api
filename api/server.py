@@ -1,14 +1,10 @@
 import os
-import json
 from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-import sqlite3
-import httpx
-import asyncio
 import requests
 from datetime import datetime
 import models
@@ -17,7 +13,7 @@ from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from tqdm import tqdm
-import math
+from haversine import haversine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
