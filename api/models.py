@@ -22,11 +22,7 @@ class FuelPrices(Base):
     __tablename__ = "fuel_prices"
     __table_args__ = (
         UniqueConstraint(
-            "siteid", 
-            "price_e5", 
-            "price_e10", 
-            "price_b7", 
-            "price_sdv", 
+            "siteid",    
             "timestamp",
             name = "fuel_prices_unique_constraint"
         ),

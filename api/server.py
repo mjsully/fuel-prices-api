@@ -137,9 +137,6 @@ def format_price(price):
 @app.get('/stations/nearest')
 async def stations_nearest(lat: float, lon: float, distance: int):
 
-    logging.debug(lat)
-    logging.debug(lon)
-
     session = get_session()
 
     results = session.query(
@@ -149,9 +146,9 @@ async def stations_nearest(lat: float, lon: float, distance: int):
     if results:
         results_list = []
         for result in results:
-            dlat = 40000*(result.latitude - lat)
-            dlon = 40000*(result.longitude - lon)
-            dist = math.sqrt(dlat*dlat + dlon*dlon)/1000.
+            station_coordinates = (result.latitude, result.longitude)
+            search_coordinates = (lat, lon)
+            dist = haversine(station_coordinates, search_coordinates)
             if dist > distance:
                 continue
             else:
