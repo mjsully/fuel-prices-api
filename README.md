@@ -1,4 +1,7 @@
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/mjsully/fuel-prices-api/main.yml)
+<div>
+  <a target="_blank" href="https://github.com/mjsully/fuel-prices-api/actions"><img src="https://github.com/mjsully/fuel-prices-api/actions/workflows/main.yml/badge.svg?event=push" /></a>
+  <a target="_blank" href="https://github.com/mjsully/fuel-prices-api/commits/master"><img src="https://img.shields.io/github/last-commit/mjsully/fuel-prices-api" /></a>
+</div>
 
 # UK fuel prices API
 
