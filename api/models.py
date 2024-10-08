@@ -28,7 +28,7 @@ class FuelPrices(Base):
         ),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
-    siteid = mapped_column(Integer, ForeignKey("fuel_stations.siteid"))
+    siteid = mapped_column(Integer, ForeignKey("fuel_stations.id"), nullable=False)
     price_e5 = mapped_column(Numeric)
     price_e10 = mapped_column(Numeric)
     price_b7 = mapped_column(Numeric)

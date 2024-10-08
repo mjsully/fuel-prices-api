@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
     logging.debug("Exiting!")
 
 app = FastAPI(lifespan=lifespan)
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 
 app.add_middleware(
     CORSMiddleware,
@@ -90,6 +90,7 @@ def build_database():
             data = res.json()
             timestamp = datetime.strptime(data["last_updated"], "%d/%m/%Y %H:%M:%S")
             for site in tqdm(data["stations"]):
+                id = None
                 try:
                     id = session.execute(
                         insert(models.FuelStations).values(
@@ -102,8 +103,23 @@ def build_database():
                         ).returning(models.FuelStations.id)
                     )
                     id = id.one()[0]
+                    logging.debug(id)
                 except SQLAlchemyError as e:
+                    # logging.error(e)
                     error = e
+                if id == None:
+                    try:
+                        results = session.query(
+                            models.FuelStations
+                        ).filter(
+                            models.FuelStations.siteid == site["site_id"]
+                        ).one()
+                        if results:
+                            id = results.id
+                            logging.debug(f"Retrieved ID: {id}")
+                    except SQLAlchemyError as e:
+                        # logging.error(e)
+                        error = e
                 try:
                     prices = site["prices"]
                     session.execute(
