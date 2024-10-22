@@ -8,12 +8,13 @@ import logging
 import requests
 from datetime import datetime
 import models
-from sqlalchemy import create_engine, update
+from sqlalchemy import create_engine, update, func
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from tqdm import tqdm
 from haversine import haversine
+from statistics import mean
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -146,36 +147,6 @@ def format_price(price):
     else:
         return "No data available."
 
-@app.get('/stations/nearest')
-async def stations_nearest(lat: float, lon: float, distance: int):
-
-    session = get_session()
-
-    results = session.query(
-        models.FuelStations
-    ).all()
-
-    if results:
-        results_list = []
-        for result in results:
-            station_coordinates = (result.latitude, result.longitude)
-            search_coordinates = (lat, lon)
-            dist = haversine(station_coordinates, search_coordinates)
-            if dist > distance:
-                continue
-            else:
-                results_list.append({
-                    "id": result.id,
-                    "siteid": result.siteid,
-                    "name": result.name,
-                    "brand": result.brand,
-                    "postcode": result.postcode,
-                    "latlon": (result.latitude, result.longitude)
-                })
-        return JSONResponse(status_code=200, content=results_list)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
-
 @app.get('/stations')
 async def stations():
 
@@ -203,8 +174,39 @@ async def stations():
     else:
         return JSONResponse(status_code=404, content="No data.")
 
-@app.get('/stations/{id}')
-async def stations_id(id: int):
+@app.get('/stations/nearest')
+async def stations_nearest(lat: float, lon: float, distance: int):
+
+    session = get_session()
+
+    results = session.query(
+        models.FuelStations
+    ).all()
+
+    if results:
+        results_list = []
+        for result in results:
+            station_coordinates = (result.latitude, result.longitude)
+            search_coordinates = (lat, lon)
+            dist = haversine(station_coordinates, search_coordinates)
+            if dist > distance:
+                continue
+            else:
+                results_list.append({
+                    "id": result.id,
+                    "siteid": result.siteid,
+                    "name": result.name,
+                    "brand": result.brand,
+                    "postcode": result.postcode,
+                    "latlon": (result.latitude, result.longitude),
+                    "distance_km": round(dist, 2)
+                })
+        return JSONResponse(status_code=200, content=results_list)
+    else:
+        return JSONResponse(status_code=404, content="No data.")
+
+@app.get('/station/{id}')
+async def station_id(id: int):
 
     """Retrieve data for a given station in the database."""
 
@@ -260,8 +262,54 @@ async def prices():
     else:
         return JSONResponse(status_code=404, content="No data.")
 
-@app.get('/prices/{id}')
-async def prices_id(id: int):
+@app.get('/prices/average')
+async def prices_average():
+
+    """Retrieve average price data for all stations in the database."""
+
+    build_database()
+
+    session = get_session()
+
+    e5_results = session.query(
+        func.avg(models.FuelPrices.price_e5)
+    ).filter(
+        models.FuelPrices.price_e5 > 0
+    ).one()
+    e5_results = round(e5_results[0], 2)
+    e10_results = session.query(
+        func.avg(models.FuelPrices.price_e10)
+    ).filter(
+        models.FuelPrices.price_e10 > 0
+    ).one()
+    e10_results = round(e10_results[0], 2)
+    b7_results = session.query(
+        func.avg(models.FuelPrices.price_b7)
+    ).filter(
+        models.FuelPrices.price_b7 > 0
+    ).one()
+    b7_results = round(b7_results[0], 2)
+    sdv_results = session.query(
+        func.avg(models.FuelPrices.price_sdv)
+    ).filter(
+        models.FuelPrices.price_sdv > 0
+    ).one()
+    sdv_results = round(sdv_results[0], 2)
+    session.close()
+
+    if e5_results or e10_results or b7_results or sdv_results:
+        results_dict = {
+            "price_e5": e5_results,
+            "price_e10": e10_results,
+            "price_b7": b7_results,
+            "price_sdv": sdv_results
+        }
+        return JSONResponse(status_code=200, content=results_dict)
+    else:
+        return JSONResponse(status_code=404, content="No data.")
+
+@app.get('/price/{id}')
+async def price_id(id: int):
 
     """Retrieve price data for a given station in the database."""
 
@@ -276,7 +324,22 @@ async def prices_id(id: int):
     ).order_by(
         models.FuelPrices.timestamp.desc()
     ).first()
+    all_results = session.query(
+        models.FuelPrices
+    ).filter(
+        models.FuelPrices.siteid == id
+    ).all()
     session.close()
+
+    price_e5_values = [float(i.price_e5) for i in all_results if float(i.price_e5) > 0]
+    price_e10_values = [float(i.price_e10) for i in all_results if float(i.price_e10) > 0]
+    price_b7_values = [float(i.price_b7) for i in all_results if float(i.price_b7) > 0]
+    price_sdv_values = [float(i.price_sdv) for i in all_results if float(i.price_sdv) > 0]
+
+    price_e5_values = [-1] if len(price_e5_values) == 0 else price_e5_values
+    price_e10_values = [-1] if len(price_e10_values) == 0 else price_e10_values
+    price_b7_values = [-1] if len(price_b7_values) == 0 else price_b7_values
+    price_sdv_values = [-1] if len(price_sdv_values) == 0 else price_sdv_values
 
     if results:
         # results_list = []
@@ -288,6 +351,10 @@ async def prices_id(id: int):
             "price_e10": format_price(results.price_e10),
             "price_b7": format_price(results.price_b7),
             "price_sdv": format_price(results.price_sdv),
+            "price_e5_average": format_price(mean(price_e5_values)),
+            "price_e10_average": format_price(mean(price_e10_values)),
+            "price_b7_average": format_price(mean(price_b7_values)),
+            "price_sdv_average": format_price(mean(price_sdv_values)),
             "timestamp": results.timestamp.strftime("%H:%M (%d/%m/%Y)")
         }
         return JSONResponse(status_code=200, content=results_dict)
