@@ -1,23 +1,25 @@
 import os
-from dataclasses import dataclass
+import logging
+from datetime import datetime
+from statistics import mean
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import logging
 import requests
-from datetime import datetime
 import models
+import constants
 from sqlalchemy import create_engine, update, func
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import SQLAlchemyError
 from tqdm import tqdm
 from haversine import haversine
-from statistics import mean
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    """On application startup, check if DB exists and if not create."""
 
     initialise()
     yield
@@ -35,35 +37,30 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
-DB_FILEPATH = "data/database.db"
-
-# Check necessary env variables exist and create user
 def initialise():
+
+    """Check if DB exists and if not build the database from the model."""
 
     if not os.path.exists('data'):
         os.mkdir('data')
-    if not os.path.exists(DB_FILEPATH):
+    if not os.path.exists(constants.DB_FILEPATH):
         logging.debug('DB does not exist!')
-        create_database()
-    else:
-        logging.debug('DB exists, refreshing!') 
+        engine = create_engine(f"sqlite:///{constants.DB_FILEPATH}")
+        models.Base.metadata.create_all(engine)
     build_database()
-
-# Use ORM to create database from models
-def create_database():
-
-    engine = create_engine(f"sqlite:///{DB_FILEPATH}")
-    models.Base.metadata.create_all(engine)
 
 def get_session():
 
-    engine = create_engine(f"sqlite:///{DB_FILEPATH}")
+    """Return a session instance."""
+
+    engine = create_engine(f"sqlite:///{constants.DB_FILEPATH}")
     Session = sessionmaker(bind=engine)
     session = Session()
     return session 
 
-# Build database containing all Steam games
 def build_database():
+
+    """Build and populate the database."""
 
     session = get_session()
 
@@ -78,7 +75,7 @@ def build_database():
     }
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 6.0; Nexus 5 Build/MRA58N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+        "User-Agent": constants.USER_AGENT_HEADERS
     }
 
     session = get_session()
@@ -108,7 +105,7 @@ def build_database():
                 except SQLAlchemyError as e:
                     # logging.error(e)
                     error = e
-                if id == None:
+                if id is None:
                     try:
                         results = session.query(
                             models.FuelStations
@@ -136,16 +133,39 @@ def build_database():
                 except Exception as e:
                     # logging.error(e)
                     error = e
-    
     session.commit()
     session.close()
 
 def format_price(price):
 
+    """Simple function for formatting the price when no data is available."""
+
     if price is not None and price != -1:
-        return float(price)
+        return round(float(price), 2)
     else:
-        return "No data available."
+        return constants.NO_DATA_STRING
+
+def get_price(id):
+
+    """Query the DB by station DB id and return the latest prices. """
+
+    session = get_session()
+    results = session.query(
+        models.FuelPrices
+    ).filter(
+        models.FuelPrices.siteid == id,
+    ).order_by(
+        models.FuelPrices.timestamp.desc()
+    ).first()
+    session.close()
+    price_dict = {}
+    if results:
+        price_dict["e5"] = format_price(results.price_e5)
+        price_dict["e10"] = format_price(results.price_e10)
+        price_dict["b7"] = format_price(results.price_b7)
+        price_dict["sdv"] = format_price(results.price_sdv)
+        price_dict["updated"] = results.timestamp.strftime(constants.TIMESTAMP_FORMAT)
+    return price_dict
 
 @app.get('/stations')
 async def stations():
@@ -175,7 +195,16 @@ async def stations():
         return JSONResponse(status_code=404, content="No data.")
 
 @app.get('/stations/nearest')
-async def stations_nearest(lat: float, lon: float, distance: int):
+async def stations_nearest(lat: float, lon: float, distance: int, fueltype: str | None = None):
+
+    """Retrieve data for all stations in the database within a given distance."""
+
+    # INSERT ASSERTION ON FUELTYPE
+    if fueltype is not None:
+        if fueltype not in ["e5", "e10", "b7", "sdv"]:
+            return JSONResponse(
+                status_code=400, 
+                content=constants.FUELTYPE_ERROR_STRING.format(fueltype))
 
     session = get_session()
 
@@ -199,8 +228,16 @@ async def stations_nearest(lat: float, lon: float, distance: int):
                     "brand": result.brand,
                     "postcode": result.postcode,
                     "latlon": (result.latitude, result.longitude),
-                    "distance_km": round(dist, 2)
+                    "distance_km": round(dist, 2),
+                    "prices": get_price(result.id)
                 })
+        if fueltype is None:
+            results_list = sorted(results_list, key = lambda x: x["distance_km"] )
+        else:
+            results_list = [
+                i for i in results_list if i["prices"][fueltype] != constants.NO_DATA_STRING
+            ]
+            results_list = sorted(results_list, key = lambda x: x["prices"][fueltype])
         return JSONResponse(status_code=200, content=results_list)
     else:
         return JSONResponse(status_code=404, content="No data.")
@@ -256,7 +293,7 @@ async def prices():
                 "price_e10": format_price(result.price_e10),
                 "price_b7": format_price(result.price_b7),
                 "price_sdv": format_price(result.price_sdv),
-                "timestamp": result.timestamp.strftime("%H:%M (%d/%m/%Y)")
+                "timestamp": result.timestamp.strftime(constants.TIMESTAMP_FORMAT)
             })
         return JSONResponse(status_code=200, content=results_list)
     else:
@@ -342,8 +379,6 @@ async def price_id(id: int):
     price_sdv_values = [-1] if len(price_sdv_values) == 0 else price_sdv_values
 
     if results:
-        # results_list = []
-        # for result in results:
         results_dict = {
             "id": results.id,
             "siteid": results.siteid,
@@ -355,7 +390,7 @@ async def price_id(id: int):
             "price_e10_average": format_price(mean(price_e10_values)),
             "price_b7_average": format_price(mean(price_b7_values)),
             "price_sdv_average": format_price(mean(price_sdv_values)),
-            "timestamp": results.timestamp.strftime("%H:%M (%d/%m/%Y)")
+            "timestamp": results.timestamp.strftime(constants.TIMESTAMP_FORMAT)
         }
         return JSONResponse(status_code=200, content=results_dict)
     else:

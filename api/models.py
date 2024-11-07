@@ -1,7 +1,7 @@
 import datetime
 
-from sqlalchemy import Column, Integer, Numeric, String, ForeignKey, Table, UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase, column_property, mapped_column, Mapped
+from sqlalchemy import Integer, Numeric, String, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped
 
 
 class Base(DeclarativeBase):
@@ -34,18 +34,3 @@ class FuelPrices(Base):
     price_b7 = mapped_column(Numeric)
     price_sdv = mapped_column(Numeric)
     timestamp: Mapped[datetime.datetime]
-
-
-# class SteamAppsMetadata(Base):
-#     __tablename__ = "steam_apps_metadata"
-#     id: Mapped[int] = mapped_column(primary_key=True)
-#     size = mapped_column(Integer)
-#     timestamp: Mapped[datetime.datetime]
-
-# class SteamUserApps(Base):
-#     __tablename__ = "steam_user_apps"
-#     id: Mapped[int] = mapped_column(primary_key=True)
-#     appid = mapped_column(Integer, ForeignKey("steam_apps.appid"), unique=True)
-#     now_playing: Mapped[int]
-#     favourite: Mapped[int]
-
