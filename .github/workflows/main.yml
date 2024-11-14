@@ -1,7 +1,10 @@
 name: Publish image to ghcr.io (github)
 
 on:
-  [push, workflow_dispatch]
+  push:
+    paths:
+      - api/**
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
