@@ -1,20 +1,23 @@
-import os
 import logging
+import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 from statistics import mean
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
+
 import requests
-import models
-import constants
-from sqlalchemy import create_engine, update, func
-from sqlalchemy.dialects.sqlite import insert
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import SQLAlchemyError
-from tqdm import tqdm
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from haversine import haversine
+from sqlalchemy import create_engine, func
+from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
+from tqdm import tqdm
+
+import constants
+import models
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,7 +59,17 @@ def get_session():
     engine = create_engine(f"sqlite:///{constants.DB_FILEPATH}")
     Session = sessionmaker(bind=engine)
     session = Session()
-    return session 
+    return session
+
+def calculate_travel_cost(prices, distance, mpg=30):
+
+    results_dict = {}
+    for price in prices:
+        p = prices[price]
+        if not isinstance(p, (str)):
+            cost = (p * distance * 4.546)/(mpg * 1.60934 * 100)
+            results_dict[price] = round(cost, 2)
+    return results_dict
 
 def build_database():
 
@@ -114,19 +127,19 @@ def build_database():
                         ).one()
                         if results:
                             id = results.id
-                            logging.debug(f"Retrieved ID: {id}")
+                            logging.debug("Retrieved ID: %s", {id})
                     except SQLAlchemyError as e:
                         # logging.error(e)
                         error = e
                 try:
-                    prices = site["prices"]
+                    fuel_prices = site["prices"]
                     session.execute(
                         insert(models.FuelPrices).values(
                             siteid = id,
-                            price_e5 = prices["E5"] if "E5" in prices.keys() else -1,
-                            price_e10 = prices["E10"] if "E10" in prices.keys() else -1,
-                            price_b7 = prices["B7"] if "B7" in prices.keys() else -1,
-                            price_sdv = prices["SDV"] if "SDV" in prices.keys() else -1,
+                            price_e5 = prices["E5"] if "E5" in fuel_prices.keys() else -1,
+                            price_e10 = prices["E10"] if "E10" in fuel_prices.keys() else -1,
+                            price_b7 = prices["B7"] if "B7" in fuel_prices.keys() else -1,
+                            price_sdv = prices["SDV"] if "SDV" in fuel_prices.keys() else -1,
                             timestamp = timestamp
                         )
                     )
@@ -203,7 +216,7 @@ async def stations_nearest(lat: float, lon: float, distance: int, fueltype: str 
     if fueltype is not None:
         if fueltype not in ["e5", "e10", "b7", "sdv"]:
             return JSONResponse(
-                status_code=400, 
+                status_code=400,
                 content=constants.FUELTYPE_ERROR_STRING.format(fueltype))
 
     session = get_session()
@@ -229,7 +242,8 @@ async def stations_nearest(lat: float, lon: float, distance: int, fueltype: str 
                     "postcode": result.postcode,
                     "latlon": (result.latitude, result.longitude),
                     "distance_km": round(dist, 2),
-                    "prices": get_price(result.id)
+                    "prices": get_price(result.id),
+                    "travel_cost_estimate": calculate_travel_cost(get_price(result.id), dist)
                 })
         if fueltype is None:
             results_list = sorted(results_list, key = lambda x: x["distance_km"] )
