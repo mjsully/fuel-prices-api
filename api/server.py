@@ -40,6 +40,7 @@ app.add_middleware(
     expose_headers=["*"]
 )
 
+
 def initialise():
 
     """Check if DB exists and if not build the database from the model."""
@@ -52,14 +53,16 @@ def initialise():
         models.Base.metadata.create_all(engine)
     build_database()
 
+
 def get_session():
 
     """Return a session instance."""
 
     engine = create_engine(f"sqlite:///{constants.DB_FILEPATH}")
-    Session = sessionmaker(bind=engine)
-    session = Session()
+    db_session = sessionmaker(bind=engine)
+    session = db_session()
     return session
+
 
 def calculate_travel_cost(prices, distance, mpg=30):
 
@@ -70,6 +73,7 @@ def calculate_travel_cost(prices, distance, mpg=30):
             cost = (p * distance * 4.546)/(mpg * 1.60934 * 100)
             results_dict[price] = round(cost, 2)
     return results_dict
+
 
 def build_database():
 
@@ -93,9 +97,13 @@ def build_database():
 
     session = get_session()
 
-    for resource in resources:
+    for _, url in resources.items():
 
-        res = requests.get(resources[resource], headers=headers)
+        res = requests.get(
+            url,
+            headers=headers,
+            timeout = 20
+        )
 
         if res.status_code == 200:
             data = res.json()
@@ -105,12 +113,12 @@ def build_database():
                 try:
                     id = session.execute(
                         insert(models.FuelStations).values(
-                            siteid = site["site_id"],
-                            name = site["address"],
-                            brand = site["brand"],
-                            postcode = site["postcode"],
-                            latitude = site["location"]["latitude"],
-                            longitude = site["location"]["longitude"]
+                            siteid=site["site_id"],
+                            name=site["address"],
+                            brand=site["brand"],
+                            postcode=site["postcode"],
+                            latitude=site["location"]["latitude"],
+                            longitude=site["location"]["longitude"]
                         ).returning(models.FuelStations.id)
                     )
                     id = id.one()[0]
@@ -135,12 +143,12 @@ def build_database():
                     fuel_prices = site["prices"]
                     session.execute(
                         insert(models.FuelPrices).values(
-                            siteid = id,
-                            price_e5 = prices["E5"] if "E5" in fuel_prices.keys() else -1,
-                            price_e10 = prices["E10"] if "E10" in fuel_prices.keys() else -1,
-                            price_b7 = prices["B7"] if "B7" in fuel_prices.keys() else -1,
-                            price_sdv = prices["SDV"] if "SDV" in fuel_prices.keys() else -1,
-                            timestamp = timestamp
+                            siteid=id,
+                            price_e5=prices["E5"] if "E5" in fuel_prices.keys() else -1,
+                            price_e10=prices["E10"] if "E10" in fuel_prices.keys() else -1,
+                            price_b7=prices["B7"] if "B7" in fuel_prices.keys() else -1,
+                            price_sdv=prices["SDV"] if "SDV" in fuel_prices.keys() else -1,
+                            timestamp=timestamp
                         )
                     )
                 except Exception as e:
@@ -149,14 +157,15 @@ def build_database():
     session.commit()
     session.close()
 
+
 def format_price(price):
 
     """Simple function for formatting the price when no data is available."""
 
     if price is not None and price != -1:
         return round(float(price), 2)
-    else:
-        return constants.NO_DATA_STRING
+    return constants.NO_DATA_STRING
+
 
 def get_price(id):
 
@@ -179,6 +188,7 @@ def get_price(id):
         price_dict["sdv"] = format_price(results.price_sdv)
         price_dict["updated"] = results.timestamp.strftime(constants.TIMESTAMP_FORMAT)
     return price_dict
+
 
 @app.get('/stations')
 async def stations():
@@ -204,8 +214,8 @@ async def stations():
                 "latlon": (result.latitude, result.longitude)
             })
         return JSONResponse(status_code=200, content=results_list)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
+    return JSONResponse(status_code=404, content="No data.")
+
 
 @app.get('/stations/nearest')
 async def stations_nearest(lat: float, lon: float, distance: int, fueltype: str | None = None):
@@ -233,28 +243,27 @@ async def stations_nearest(lat: float, lon: float, distance: int, fueltype: str 
             dist = haversine(station_coordinates, search_coordinates)
             if dist > distance:
                 continue
-            else:
-                results_list.append({
-                    "id": result.id,
-                    "siteid": result.siteid,
-                    "name": result.name,
-                    "brand": result.brand,
-                    "postcode": result.postcode,
-                    "latlon": (result.latitude, result.longitude),
-                    "distance_km": round(dist, 2),
-                    "prices": get_price(result.id),
-                    "travel_cost_estimate": calculate_travel_cost(get_price(result.id), dist)
-                })
+            results_list.append({
+                "id": result.id,
+                "siteid": result.siteid,
+                "name": result.name,
+                "brand": result.brand,
+                "postcode": result.postcode,
+                "latlon": (result.latitude, result.longitude),
+                "distance_km": round(dist, 2),
+                "prices": get_price(result.id),
+                "travel_cost_estimate": calculate_travel_cost(get_price(result.id), dist)
+            })
         if fueltype is None:
-            results_list = sorted(results_list, key = lambda x: x["distance_km"] )
+            results_list = sorted(results_list, key=lambda x: x["distance_km"])
         else:
             results_list = [
                 i for i in results_list if i["prices"][fueltype] != constants.NO_DATA_STRING
             ]
-            results_list = sorted(results_list, key = lambda x: x["prices"][fueltype])
+            results_list = sorted(results_list, key=lambda x: x["prices"][fueltype])
         return JSONResponse(status_code=200, content=results_list)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
+    return JSONResponse(status_code=404, content="No data.")
+
 
 @app.get('/station/{id}')
 async def station_id(id: int):
@@ -280,8 +289,8 @@ async def station_id(id: int):
             "latlon": (results.latitude, results.longitude)
         }
         return JSONResponse(status_code=200, content=results_dict)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
+    return JSONResponse(status_code=404, content="No data.")
+
 
 @app.get('/prices')
 async def prices():
@@ -310,8 +319,8 @@ async def prices():
                 "timestamp": result.timestamp.strftime(constants.TIMESTAMP_FORMAT)
             })
         return JSONResponse(status_code=200, content=results_list)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
+    return JSONResponse(status_code=404, content="No data.")
+
 
 @app.get('/prices/average')
 async def prices_average():
@@ -356,8 +365,8 @@ async def prices_average():
             "price_sdv": sdv_results
         }
         return JSONResponse(status_code=200, content=results_dict)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
+    return JSONResponse(status_code=404, content="No data.")
+
 
 @app.get('/price/{id}')
 async def price_id(id: int):
@@ -407,8 +416,8 @@ async def price_id(id: int):
             "timestamp": results.timestamp.strftime(constants.TIMESTAMP_FORMAT)
         }
         return JSONResponse(status_code=200, content=results_dict)
-    else:
-        return JSONResponse(status_code=404, content="No data.")
+    return JSONResponse(status_code=404, content="No data.")
+
 
 @app.get('/database')
 async def database():
